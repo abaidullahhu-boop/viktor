@@ -16,8 +16,8 @@ import { Response } from 'express';
 import { CurrentUser, Public } from '../common/decorators';
 import { AppConfig } from '../config/configuration';
 import { User } from '../database/entities';
-import { AuthService } from './auth.service';
-import { RefreshTokenDto, SlackCallbackDto } from './dto';
+import { AuthService, AuthTokens, WorkspaceMembership } from './auth.service';
+import { RefreshTokenDto, SlackCallbackDto, SwitchWorkspaceDto } from './dto';
 import { ApiTags } from '@nestjs/swagger';
 
 @ApiTags('auth')
@@ -84,5 +84,21 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser('userId') userId: string): Promise<User> {
     return this.authService.getCurrentUser(userId);
+  }
+
+  /** List every workspace the current user is a member of. */
+  @Get('workspaces')
+  listWorkspaces(@CurrentUser('userId') userId: string): Promise<WorkspaceMembership[]> {
+    return this.authService.listWorkspaces(userId);
+  }
+
+  /** Issue a token pair scoped to another workspace the user belongs to. */
+  @Post('switch-workspace')
+  @HttpCode(HttpStatus.OK)
+  switchWorkspace(
+    @CurrentUser('userId') userId: string,
+    @Body() dto: SwitchWorkspaceDto,
+  ): Promise<AuthTokens> {
+    return this.authService.switchWorkspace(userId, dto.workspaceId);
   }
 }

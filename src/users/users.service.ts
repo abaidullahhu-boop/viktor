@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import { UserRole } from '../common/enums';
 import { User } from '../database/entities';
 
@@ -39,6 +39,23 @@ export class UsersService {
 
   countByWorkspace(workspaceId: string): Promise<number> {
     return this.userRepository.count({ where: { workspaceId } });
+  }
+
+  /**
+   * All active user records belonging to the same person across workspaces.
+   * Slack user ids are team-scoped, so the email is the cross-workspace link
+   * (with the slackUserId as a fallback for Enterprise Grid shared ids).
+   */
+  findMembershipsOf(user: User): Promise<User[]> {
+    const where: FindOptionsWhere<User>[] = [{ slackUserId: user.slackUserId, isActive: true }];
+    if (user.email) {
+      where.push({ email: user.email, isActive: true });
+    }
+    return this.userRepository.find({
+      where,
+      relations: { workspace: true },
+      order: { createdAt: 'ASC' },
+    });
   }
 
   /**

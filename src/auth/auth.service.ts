@@ -1,7 +1,13 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { UserRole } from '../common/enums';
 import { JwtPayload } from '../common/interfaces';
 import { AppConfig } from '../config/configuration';
 import { User, Workspace } from '../database/entities';
@@ -17,6 +23,15 @@ export interface AuthTokens {
 export interface AuthResult extends AuthTokens {
   user: User;
   workspace: Workspace;
+}
+
+/** A workspace the user belongs to, as exposed by `GET /auth/workspaces`. */
+export interface WorkspaceMembership {
+  workspaceId: string;
+  name: string;
+  slackTeamId: string;
+  role: UserRole;
+  isCurrent: boolean;
 }
 
 const REFRESH_TOKEN_SALT_ROUNDS = 10;
@@ -94,6 +109,36 @@ export class AuthService {
   /** Returns the current user's profile. */
   async getCurrentUser(userId: string): Promise<User> {
     return this.usersService.findByIdOrFail(userId);
+  }
+
+  /** Lists every workspace the user is a member of, flagging the current one. */
+  async listWorkspaces(userId: string): Promise<WorkspaceMembership[]> {
+    const user = await this.usersService.findByIdOrFail(userId);
+    const memberships = await this.usersService.findMembershipsOf(user);
+
+    return memberships.map((membership) => ({
+      workspaceId: membership.workspaceId,
+      name: membership.workspace.name,
+      slackTeamId: membership.workspace.slackTeamId,
+      role: membership.role,
+      isCurrent: membership.workspaceId === user.workspaceId,
+    }));
+  }
+
+  /**
+   * Issues a token pair scoped to another workspace the user belongs to.
+   * The caller is expected to refetch `/auth/me` with the new access token.
+   */
+  async switchWorkspace(userId: string, workspaceId: string): Promise<AuthTokens> {
+    const user = await this.usersService.findByIdOrFail(userId);
+    const memberships = await this.usersService.findMembershipsOf(user);
+
+    const target = memberships.find((membership) => membership.workspaceId === workspaceId);
+    if (!target) {
+      throw new ForbiddenException('You are not a member of that workspace');
+    }
+
+    return this.issueTokens(target);
   }
 
   private async issueTokens(user: User): Promise<AuthTokens> {
